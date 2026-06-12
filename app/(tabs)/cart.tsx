@@ -102,7 +102,7 @@ const DraftOrderItem: React.FC<{ item: AdminOrderLineItem; onRemove?: (item: Adm
           )}
           <QuantityPicker
             quantity={item.quantity}
-            max={item.variant?.inventory_quantity}
+            max={item.variant?.inventory_quantity ?? undefined}
             onQuantityChange={(quantity) =>
               updateDraftOrderItem.mutate({
                 id: item.id,

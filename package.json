@@ -13,8 +13,8 @@
   "dependencies": {
     "@expo-google-fonts/noto-sans": "^0.4.0",
     "@hookform/resolvers": "^5.1.1",
-    "@medusajs/js-sdk": "2.10.2",
-    "@medusajs/types": "2.10.2",
+    "@medusajs/js-sdk": "2.15.3",
+    "@medusajs/types": "2.15.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/hooks": "^100.1.0",
     "@react-navigation/bottom-tabs": "^7.3.10",
