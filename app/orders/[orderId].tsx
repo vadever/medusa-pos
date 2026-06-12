@@ -1,5 +1,5 @@
 import { DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL } from '@/api/hooks/draft-orders';
-import { useCashCapture, useCreateAndEmailReceipt, useFulfilOrder } from '@/api/hooks/fiscal';
+import { useCashCapture, useCreateAndEmailReceipt, useFulfilOrder, useReceiptExists } from '@/api/hooks/fiscal';
 import { useOrder } from '@/api/hooks/orders';
 import { Button } from '@/components/ui/Button';
 import { InfoBanner } from '@/components/InfoBanner';
@@ -254,6 +254,7 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
   const cashCapture = useCashCapture(orderId);
   const fulfilOrder = useFulfilOrder(orderId);
   const createAndEmailReceipt = useCreateAndEmailReceipt(orderId);
+  const receiptExists = useReceiptExists(orderId);
 
   const order = orderQuery.data?.order;
 
@@ -383,15 +384,13 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
           >
             {fulfilOrder.isSuccess || isFulfilled ? 'Fulfilled ✓' : 'Fulfil'}
           </Button>
-          {/* TODO(device): disable once a receipt doc exists for the order (needs a receipt-exists signal);
-              for now re-tap is email-safe via the created flag in Fix 1 */}
           <Button
             className="mb-2"
             onPress={() => createAndEmailReceipt.mutate()}
-            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid}
+            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid || !!receiptExists.data?.exists}
             isPending={createAndEmailReceipt.isPending}
           >
-            {createAndEmailReceipt.isSuccess ? 'Receipt sent ✓' : 'Create & email receipt'}
+            {(receiptExists.data?.exists || createAndEmailReceipt.isSuccess) ? 'Receipt issued ✓' : 'Create & email receipt'}
           </Button>
         </>
       ) : (

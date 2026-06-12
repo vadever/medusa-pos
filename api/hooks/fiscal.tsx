@@ -1,11 +1,27 @@
 import { useMedusaSdk } from '@/contexts/auth';
 import { useSettings } from '@/contexts/settings';
 import { showErrorToast } from '@/utils/errors';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 type CashCaptureResponse = { captured: boolean; newly_captured: boolean };
 type FulfilOrderResponse = { fulfilled: boolean; already_fulfilled: boolean };
 type FiscalReceiptResponse = { document: { id: string }; created: boolean; test_mode: boolean };
+type ReceiptExistsResponse = { exists: boolean; document_id: string | null; number: string | null };
+
+/**
+ * Query whether a fiscal receipt (Beleg) already exists for the given order.
+ * Use this to gate the "Create & email receipt" button across screen reopens.
+ */
+export const useReceiptExists = (orderId: string) => {
+  const sdk = useMedusaSdk();
+  return useQuery({
+    queryKey: ['orders', orderId, 'fiscal-receipt-exists'],
+    queryFn: async () => {
+      return sdk.client.fetch<ReceiptExistsResponse>(`/admin/orders/${orderId}/fiscal-receipt`);
+    },
+    enabled: !!orderId,
+  });
+};
 
 /**
  * Capture cash payment for an order (idempotent — safe to call even if already captured).
@@ -80,6 +96,8 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
+      // Refetch receipt-exists so the button label flips to ✓ without a manual reload
+      await queryClient.invalidateQueries({ queryKey: ['orders', orderId, 'fiscal-receipt-exists'] });
     },
     onError: (error: Error) => showErrorToast(error),
   });
