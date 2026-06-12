@@ -4,7 +4,7 @@ import {
   useCurrentDraftOrder,
   useDraftOrderOrOrder,
 } from '@/api/hooks/draft-orders';
-import { useCashRegisterFlow } from '@/api/hooks/fiscal';
+import { useBankRegisterFlow, useCashRegisterFlow } from '@/api/hooks/fiscal';
 import { ShoppingCart } from '@/components/icons/shopping-cart';
 import { InfoBanner } from '@/components/InfoBanner';
 import { CheckoutSkeleton } from '@/components/skeletons/CheckoutSkeleton';
@@ -61,6 +61,8 @@ export default function CheckoutScreen() {
   const draftOrder = useDraftOrderOrOrder(draftOrderId);
   const completeOrder = useCompleteDraftOrder(draftOrderId);
   const cashRegister = useCashRegisterFlow(draftOrderId);
+  const bankRegister = useBankRegisterFlow(draftOrderId);
+  const [selectedMethod, setSelectedMethod] = React.useState<'cash' | 'bank' | null>(null);
 
   const renderItem = React.useCallback<ListRenderItem<AdminOrderLineItem>>(
     ({ item }) => <DraftOrderItem item={item} />,
@@ -273,14 +275,56 @@ export default function CheckoutScreen() {
         >
           View Order
         </Button>
+
+        {/* Payment method selection — choose before confirming */}
+        {!cashRegister.isSuccess && !bankRegister.isSuccess && (
+          <View className="mb-2 flex-row gap-2">
+            <Button
+              className="flex-1"
+              variant={selectedMethod === 'cash' ? 'solid' : 'outline'}
+              onPress={() => setSelectedMethod('cash')}
+              disabled={cashRegister.isPending || bankRegister.isPending}
+            >
+              Cash
+            </Button>
+            <Button
+              className="flex-1"
+              variant={selectedMethod === 'bank' ? 'solid' : 'outline'}
+              onPress={() => setSelectedMethod('bank')}
+              disabled={cashRegister.isPending || bankRegister.isPending}
+            >
+              Bank
+            </Button>
+          </View>
+        )}
+
         <Button
           className="mb-2"
-          onPress={() => cashRegister.mutate()}
-          disabled={cashRegister.isPending || cashRegister.isSuccess}
-          isPending={cashRegister.isPending}
+          onPress={() => {
+            if (selectedMethod === 'bank') {
+              bankRegister.mutate();
+            } else {
+              cashRegister.mutate();
+            }
+          }}
+          disabled={
+            selectedMethod === null ||
+            cashRegister.isPending ||
+            bankRegister.isPending ||
+            cashRegister.isSuccess ||
+            bankRegister.isSuccess
+          }
+          isPending={cashRegister.isPending || bankRegister.isPending}
         >
-          {cashRegister.isSuccess ? 'Receipt sent ✓' : 'Take Cash & Send Receipt'}
+          {cashRegister.isSuccess || bankRegister.isSuccess
+            ? selectedMethod === 'bank'
+              ? 'Invoice sent ✓'
+              : 'Receipt sent ✓'
+            : selectedMethod === 'bank'
+              ? 'Record bank payment & email invoice'
+              : 'Take cash & send receipt'}
         </Button>
+
         <Button
           variant="outline"
           onPress={() => {

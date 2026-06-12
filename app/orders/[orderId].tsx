@@ -1,5 +1,5 @@
 import { DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL } from '@/api/hooks/draft-orders';
-import { useCashCapture, useCreateAndEmailReceipt, useFulfilOrder, useReceiptExists } from '@/api/hooks/fiscal';
+import { useCashCapture, useCreateAndEmailInvoice, useCreateAndEmailReceipt, useFulfilOrder, useReceiptExists } from '@/api/hooks/fiscal';
 import { useOrder } from '@/api/hooks/orders';
 import { Button } from '@/components/ui/Button';
 import { InfoBanner } from '@/components/InfoBanner';
@@ -254,9 +254,14 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
   const cashCapture = useCashCapture(orderId);
   const fulfilOrder = useFulfilOrder(orderId);
   const createAndEmailReceipt = useCreateAndEmailReceipt(orderId);
+  const createAndEmailInvoice = useCreateAndEmailInvoice(orderId);
   const receiptExists = useReceiptExists(orderId);
 
   const order = orderQuery.data?.order;
+
+  // Derive payment method from order metadata stamped at capture time.
+  // Falls back to 'cash' behaviour for orders captured before this feature.
+  const isBankOrder = order?.metadata?.payment_method === 'bank';
 
   // Derived status booleans based on order's persisted fields — survive screen reopens.
   // Literals sourced from components/ui/OrderStatus.tsx paymentStatuses / fulfillmentStatuses maps.
@@ -374,7 +379,7 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
             disabled={cashCapture.isPending || cashCapture.isSuccess || isPaid}
             isPending={cashCapture.isPending}
           >
-            {cashCapture.isSuccess || isPaid ? 'Cash captured ✓' : 'Take cash'}
+            {cashCapture.isSuccess || isPaid ? 'Paid ✓' : isBankOrder ? 'Mark paid' : 'Take cash'}
           </Button>
           <Button
             className="mb-2"
@@ -384,14 +389,27 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
           >
             {fulfilOrder.isSuccess || isFulfilled ? 'Fulfilled ✓' : 'Fulfil'}
           </Button>
-          <Button
-            className="mb-2"
-            onPress={() => createAndEmailReceipt.mutate()}
-            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid || !!receiptExists.data?.exists}
-            isPending={createAndEmailReceipt.isPending}
-          >
-            {(receiptExists.data?.exists || createAndEmailReceipt.isSuccess) ? 'Receipt issued ✓' : 'Create & email receipt'}
-          </Button>
+          {isBankOrder ? (
+            // Bank orders: show invoice button, never show Beleg
+            <Button
+              className="mb-2"
+              onPress={() => createAndEmailInvoice.mutate()}
+              disabled={createAndEmailInvoice.isPending || createAndEmailInvoice.isSuccess || !isPaid}
+              isPending={createAndEmailInvoice.isPending}
+            >
+              {createAndEmailInvoice.isSuccess ? 'Invoice sent ✓' : 'Email invoice'}
+            </Button>
+          ) : (
+            // Cash orders (or unset): show Beleg button
+            <Button
+              className="mb-2"
+              onPress={() => createAndEmailReceipt.mutate()}
+              disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid || !!receiptExists.data?.exists}
+              isPending={createAndEmailReceipt.isPending}
+            >
+              {(receiptExists.data?.exists || createAndEmailReceipt.isSuccess) ? 'Receipt issued ✓' : 'Create & email receipt'}
+            </Button>
+          )}
         </>
       ) : (
         <View className="py-11">

@@ -7,6 +7,7 @@ type CashCaptureResponse = { captured: boolean; newly_captured: boolean };
 type FulfilOrderResponse = { fulfilled: boolean; already_fulfilled: boolean };
 type FiscalReceiptResponse = { document: { id: string }; created: boolean; test_mode: boolean };
 type ReceiptExistsResponse = { exists: boolean; document_id: string | null; number: string | null };
+type InvoiceResponse = { document: { id: string; number: string } };
 
 /**
  * Query whether a fiscal receipt (Beleg) already exists for the given order.
@@ -121,8 +122,12 @@ export const useCashRegisterFlow = (
   return useMutation({
     mutationKey: ['orders', orderId, 'cash-register-flow'],
     mutationFn: async () => {
-      // Step 1: capture payment
-      await sdk.client.fetch<CashCaptureResponse>(`/admin/orders/${orderId}/cash-capture`, { method: 'POST' });
+      // Step 1: capture payment — stamp payment_method: cash so order metadata is set
+      await sdk.client.fetch<CashCaptureResponse>(`/admin/orders/${orderId}/cash-capture`, {
+        method: 'POST',
+        body: { payment_method: 'cash' },
+        headers: { 'Content-Type': 'application/json' },
+      });
 
       // Step 2: fulfil (stock decrement) — idempotent; already_fulfilled is not an error
       const locationId = settings.data?.stock_location?.id;
@@ -155,5 +160,85 @@ export const useCashRegisterFlow = (
     },
     onSuccess: (res) => options?.onSuccess?.(res.documentId, res.testMode),
     onError: (error: Error) => { showErrorToast(error); options?.onError?.(error); },
+  });
+};
+
+/**
+ * Orchestrated bank-register flow for the checkout success Dialog:
+ *   capture(bank) -> fulfil -> generate invoice -> send invoice.
+ * No Beleg is created — bank transfers are not subject to Austrian RKSV.
+ * The button that calls this MUST be disabled while isPending.
+ */
+export const useBankRegisterFlow = (
+  orderId: string,
+  options?: { onSuccess?: (documentId: string) => void; onError?: (error: Error) => void },
+) => {
+  const sdk = useMedusaSdk();
+  const queryClient = useQueryClient();
+  const settings = useSettings();
+  return useMutation({
+    mutationKey: ['orders', orderId, 'bank-register-flow'],
+    mutationFn: async () => {
+      // Step 1: capture payment — stamp payment_method: bank on order metadata
+      await sdk.client.fetch<CashCaptureResponse>(`/admin/orders/${orderId}/cash-capture`, {
+        method: 'POST',
+        body: { payment_method: 'bank' },
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      // Step 2: fulfil (stock decrement) — idempotent; already_fulfilled is not an error
+      const locationId = settings.data?.stock_location?.id;
+      if (!locationId) {
+        throw new Error('No stock location configured — finish Setup first');
+      }
+      await sdk.client.fetch<FulfilOrderResponse>(`/admin/orders/${orderId}/fulfil`, {
+        method: 'POST',
+        body: { location_id: locationId },
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      // Step 3: generate the RG invoice document
+      const invoice = await sdk.client.fetch<InvoiceResponse>(`/admin/orders/${orderId}/documents`, {
+        method: 'POST',
+        body: { type: 'invoice' },
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      // Step 4: email the invoice PDF to the customer
+      await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
+
+      return { documentId: invoice.document.id, type: 'invoice' as const };
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
+    },
+    onSuccess: (res) => options?.onSuccess?.(res.documentId),
+    onError: (error: Error) => { showErrorToast(error); options?.onError?.(error); },
+  });
+};
+
+/**
+ * Generate an RG invoice for an existing order and immediately email it to the customer.
+ * Use on the order-detail screen for bank orders (mirror of useCreateAndEmailReceipt for cash).
+ * The button that calls this MUST be disabled while isPending.
+ */
+export const useCreateAndEmailInvoice = (orderId: string) => {
+  const sdk = useMedusaSdk();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ['orders', orderId, 'create-and-email-invoice'],
+    mutationFn: async () => {
+      const invoice = await sdk.client.fetch<InvoiceResponse>(`/admin/orders/${orderId}/documents`, {
+        method: 'POST',
+        body: { type: 'invoice' },
+        headers: { 'Content-Type': 'application/json' },
+      });
+      await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
+      return { documentId: invoice.document.id };
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
+    },
+    onError: (error: Error) => showErrorToast(error),
   });
 };
