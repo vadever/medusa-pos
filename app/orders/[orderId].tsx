@@ -255,6 +255,36 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
   const fulfilOrder = useFulfilOrder(orderId);
   const createAndEmailReceipt = useCreateAndEmailReceipt(orderId);
 
+  const order = orderQuery.data?.order;
+
+  // Derived status booleans based on order's persisted fields — survive screen reopens.
+  // Literals sourced from components/ui/OrderStatus.tsx paymentStatuses / fulfillmentStatuses maps.
+  const isPaid = order
+    ? (['captured', 'partially_captured', 'refunded', 'partially_refunded'] as const).includes(
+        order.payment_status as 'captured' | 'partially_captured' | 'refunded' | 'partially_refunded',
+      )
+    : false;
+  const isFulfilled = order
+    ? (
+        [
+          'fulfilled',
+          'partially_fulfilled',
+          'shipped',
+          'partially_shipped',
+          'delivered',
+          'partially_delivered',
+        ] as const
+      ).includes(
+        order.fulfillment_status as
+          | 'fulfilled'
+          | 'partially_fulfilled'
+          | 'shipped'
+          | 'partially_shipped'
+          | 'delivered'
+          | 'partially_delivered',
+      )
+    : false;
+
   const handleProductPress = React.useCallback(
     (product: AdminOrderLineItem) => {
       animateOut(() => {
@@ -337,27 +367,28 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
           />
-          {/* TODO(device): refine which buttons show based on order payment/fulfilment status once the admin retrieve's computed fields are confirmed on-device */}
           <Button
             className="mb-2 mt-4"
             onPress={() => cashCapture.mutate()}
-            disabled={cashCapture.isPending || cashCapture.isSuccess}
+            disabled={cashCapture.isPending || cashCapture.isSuccess || isPaid}
             isPending={cashCapture.isPending}
           >
-            {cashCapture.isSuccess ? 'Cash captured ✓' : 'Take cash'}
+            {cashCapture.isSuccess || isPaid ? 'Cash captured ✓' : 'Take cash'}
           </Button>
           <Button
             className="mb-2"
             onPress={() => fulfilOrder.mutate()}
-            disabled={fulfilOrder.isPending || fulfilOrder.isSuccess}
+            disabled={fulfilOrder.isPending || fulfilOrder.isSuccess || isFulfilled}
             isPending={fulfilOrder.isPending}
           >
-            {fulfilOrder.isSuccess ? 'Fulfilled ✓' : 'Fulfil'}
+            {fulfilOrder.isSuccess || isFulfilled ? 'Fulfilled ✓' : 'Fulfil'}
           </Button>
+          {/* TODO(device): disable once a receipt doc exists for the order (needs a receipt-exists signal);
+              for now re-tap is email-safe via the created flag in Fix 1 */}
           <Button
             className="mb-2"
             onPress={() => createAndEmailReceipt.mutate()}
-            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess}
+            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid}
             isPending={createAndEmailReceipt.isPending}
           >
             {createAndEmailReceipt.isSuccess ? 'Receipt sent ✓' : 'Create & email receipt'}
