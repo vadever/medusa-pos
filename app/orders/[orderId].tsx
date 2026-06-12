@@ -1,5 +1,7 @@
 import { DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL } from '@/api/hooks/draft-orders';
+import { useCashRegisterFlow } from '@/api/hooks/fiscal';
 import { useOrder } from '@/api/hooks/orders';
+import { Button } from '@/components/ui/Button';
 import { InfoBanner } from '@/components/InfoBanner';
 import { LoadingBanner } from '@/components/LoadingBanner';
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -249,6 +251,8 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
     settings.data?.region?.currency_code ||
     'EUR';
 
+  const cashRegister = useCashRegisterFlow(orderId);
+
   const handleProductPress = React.useCallback(
     (product: AdminOrderLineItem) => {
       animateOut(() => {
@@ -319,17 +323,31 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
           </InfoBanner>
         </View>
       ) : orderQuery.isSuccess && orderQuery.data ? (
-        <FlatList
-          data={orderQuery.data.order.items}
-          renderItem={renderItem}
-          ItemSeparatorComponent={() => <View className="my-6 h-hairline w-full bg-gray-200" />}
-          className="shrink grow-0"
-          contentContainerClassName="pt-4 grow-0 pb-safe-offset-6"
-          ListFooterComponentClassName="mt-14"
-          ListFooterComponent={<OrderInformation order={orderQuery.data.order} currency={currency} />}
-          showsVerticalScrollIndicator={false}
-          keyboardDismissMode="on-drag"
-        />
+        <>
+          <FlatList
+            data={orderQuery.data.order.items}
+            renderItem={renderItem}
+            ItemSeparatorComponent={() => <View className="my-6 h-hairline w-full bg-gray-200" />}
+            className="shrink grow-0"
+            contentContainerClassName="pt-4 grow-0 pb-safe-offset-6"
+            ListFooterComponentClassName="mt-14"
+            ListFooterComponent={<OrderInformation order={orderQuery.data.order} currency={currency} />}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+          />
+          {/* TODO(device): gate on unpaid once payment_status literals confirmed */}
+          {(orderQuery.data.order.payment_status === 'not_paid' ||
+            orderQuery.data.order.payment_status === 'awaiting') && (
+            <Button
+              className="mb-2 mt-4"
+              onPress={() => cashRegister.mutate()}
+              disabled={cashRegister.isPending || cashRegister.isSuccess}
+              isPending={cashRegister.isPending}
+            >
+              {cashRegister.isSuccess ? 'Receipt sent ✓' : 'Take Cash & Send Receipt'}
+            </Button>
+          )}
+        </>
       ) : (
         <View className="py-11">
           <InfoBanner colorScheme="error">An unknown error occurred while fetching the order details.</InfoBanner>

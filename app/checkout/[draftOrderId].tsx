@@ -4,6 +4,7 @@ import {
   useCurrentDraftOrder,
   useDraftOrderOrOrder,
 } from '@/api/hooks/draft-orders';
+import { useCashRegisterFlow } from '@/api/hooks/fiscal';
 import { ShoppingCart } from '@/components/icons/shopping-cart';
 import { InfoBanner } from '@/components/InfoBanner';
 import { CheckoutSkeleton } from '@/components/skeletons/CheckoutSkeleton';
@@ -59,6 +60,7 @@ export default function CheckoutScreen() {
   const settings = useSettings();
   const draftOrder = useDraftOrderOrOrder(draftOrderId);
   const completeOrder = useCompleteDraftOrder(draftOrderId);
+  const cashRegister = useCashRegisterFlow(draftOrderId);
 
   const renderItem = React.useCallback<ListRenderItem<AdminOrderLineItem>>(
     ({ item }) => <DraftOrderItem item={item} />,
@@ -270,6 +272,14 @@ export default function CheckoutScreen() {
           }}
         >
           View Order
+        </Button>
+        <Button
+          className="mb-2"
+          onPress={() => cashRegister.mutate()}
+          disabled={cashRegister.isPending || cashRegister.isSuccess}
+          isPending={cashRegister.isPending}
+        >
+          {cashRegister.isSuccess ? 'Receipt sent ✓' : 'Take Cash & Send Receipt'}
         </Button>
         <Button
           variant="outline"
