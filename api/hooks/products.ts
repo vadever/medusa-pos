@@ -10,6 +10,8 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 
+type LivePricesResponse = { prices: Record<string, number | null> };
+
 const PER_PAGE = 20;
 
 export const useProducts = (
@@ -47,6 +49,29 @@ export const useProducts = (
       return prevPage >= 1 ? prevPage : undefined;
     },
     ...options,
+  });
+};
+
+/**
+ * Fetch live (spot) prices for a batch of product ids from the backend.
+ * Returns a stable map { [product_id]: number | null }.
+ * Skips the request when productIds is empty.
+ */
+export const useLivePrices = (productIds: string[]) => {
+  const sdk = useMedusaSdk();
+  return useQuery({
+    queryKey: ['products', 'live-prices', productIds.slice().sort().join(',')],
+    queryFn: async () => {
+      const response = await sdk.client.fetch<LivePricesResponse>('/admin/products/live-prices', {
+        method: 'POST',
+        body: { product_ids: productIds },
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.prices;
+    },
+    enabled: productIds.length > 0,
+    // Live prices can change often — don't persist stale values for long
+    staleTime: 30_000,
   });
 };
 

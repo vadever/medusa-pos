@@ -1,4 +1,4 @@
-import { useProducts } from '@/api/hooks/products';
+import { useLivePrices, useProducts } from '@/api/hooks/products';
 import { CircleAlert } from '@/components/icons/circle-alert';
 import { SearchInput } from '@/components/SearchInput';
 import { Layout } from '@/components/ui/Layout';
@@ -48,6 +48,14 @@ export default function ProductsScreen() {
     fields: '+variants.prices.*',
   });
 
+  // Collect product IDs for the currently-loaded pages and fetch live spot prices in one batched call
+  const loadedProducts = React.useMemo(
+    () => productsQuery.data?.pages.flatMap((page) => page.products) ?? [],
+    [productsQuery.data],
+  );
+  const visibleProductIds = React.useMemo(() => loadedProducts.map((p) => p.id), [loadedProducts]);
+  const livePrices = useLivePrices(visibleProductIds);
+
   const handleProductPress = React.useCallback((product: AdminProduct) => {
     router.push({
       pathname: '/product-details',
@@ -62,15 +70,36 @@ export default function ProductsScreen() {
       }
 
       const thumbnail = item.thumbnail || item.images?.[0]?.url;
+      const regionCurrency = settings.data?.region?.currency_code;
+
+      // Prefer live spot price when available; fall back to stored variant prices
+      const livePrice = livePrices.data?.[item.id];
+      const hasLivePrice = typeof livePrice === 'number';
+
       const variantPrices = (item.variants ?? [])
         .flatMap((variant) =>
-          variant.prices?.filter((price) => price.currency_code === settings.data?.region?.currency_code),
+          variant.prices?.filter((price) => price.currency_code === regionCurrency),
         )
         .filter((price) => typeof price !== 'undefined');
-      const currencyCode = variantPrices[0]?.currency_code ?? undefined;
+      const currencyCode = regionCurrency ?? variantPrices[0]?.currency_code ?? undefined;
       const amounts = variantPrices.map((price) => price.amount);
       const minPrice = amounts.length ? Math.min(...amounts) : undefined;
       const maxPrice = amounts.length ? Math.max(...amounts) : undefined;
+
+      const formatPrice = (amount: number) =>
+        amount.toLocaleString('en-US', {
+          style: 'currency',
+          currency: currencyCode,
+          currencyDisplay: 'narrowSymbol',
+        });
+
+      const priceLabel: string = hasLivePrice
+        ? formatPrice(livePrice)
+        : amounts.length === 0 || (typeof minPrice !== 'number' && typeof maxPrice !== 'number')
+          ? 'No price available'
+          : minPrice === maxPrice
+            ? formatPrice(minPrice as number)
+            : `${formatPrice(minPrice as number)} — ${formatPrice(maxPrice as number)}`;
 
       return (
         <View
@@ -88,32 +117,13 @@ export default function ProductsScreen() {
             </View>
             <View>
               <Text className="mb-1 font-light">{item.title}</Text>
-              {/* TODO: display discounted price */}
-              <Text className="font-bold">
-                {amounts.length === 0 || (typeof minPrice !== 'number' && typeof maxPrice !== 'number')
-                  ? 'No price available'
-                  : minPrice === maxPrice
-                    ? minPrice?.toLocaleString('en-US', {
-                        style: 'currency',
-                        currency: currencyCode,
-                        currencyDisplay: 'narrowSymbol',
-                      })
-                    : `${minPrice?.toLocaleString('en-US', {
-                        style: 'currency',
-                        currency: currencyCode,
-                        currencyDisplay: 'narrowSymbol',
-                      })} — ${maxPrice?.toLocaleString('en-US', {
-                        style: 'currency',
-                        currency: currencyCode,
-                        currencyDisplay: 'narrowSymbol',
-                      })}`}
-              </Text>
+              <Text className="font-bold">{priceLabel}</Text>
             </View>
           </TouchableOpacity>
         </View>
       );
     },
-    [handleProductPress, numColumns, settings.data?.region?.currency_code],
+    [handleProductPress, numColumns, settings.data?.region?.currency_code, livePrices.data],
   );
 
   const data = React.useMemo(() => {
@@ -123,8 +133,8 @@ export default function ProductsScreen() {
       }));
     }
 
-    return productsQuery.data?.pages.flatMap((page) => page.products) || [];
-  }, [productsQuery]);
+    return loadedProducts;
+  }, [productsQuery.isLoading, loadedProducts]);
 
   React.useEffect(() => {
     if (productsQuery.isError) {
