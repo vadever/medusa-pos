@@ -1,5 +1,5 @@
 import { DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL } from '@/api/hooks/draft-orders';
-import { useCashRegisterFlow } from '@/api/hooks/fiscal';
+import { useCashCapture, useCreateAndEmailReceipt, useFulfilOrder } from '@/api/hooks/fiscal';
 import { useOrder } from '@/api/hooks/orders';
 import { Button } from '@/components/ui/Button';
 import { InfoBanner } from '@/components/InfoBanner';
@@ -251,7 +251,9 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
     settings.data?.region?.currency_code ||
     'EUR';
 
-  const cashRegister = useCashRegisterFlow(orderId);
+  const cashCapture = useCashCapture(orderId);
+  const fulfilOrder = useFulfilOrder(orderId);
+  const createAndEmailReceipt = useCreateAndEmailReceipt(orderId);
 
   const handleProductPress = React.useCallback(
     (product: AdminOrderLineItem) => {
@@ -335,18 +337,31 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
           />
-          {/* TODO(device): gate on unpaid once payment_status literals confirmed */}
-          {(orderQuery.data.order.payment_status === 'not_paid' ||
-            orderQuery.data.order.payment_status === 'awaiting') && (
-            <Button
-              className="mb-2 mt-4"
-              onPress={() => cashRegister.mutate()}
-              disabled={cashRegister.isPending || cashRegister.isSuccess}
-              isPending={cashRegister.isPending}
-            >
-              {cashRegister.isSuccess ? 'Receipt sent ✓' : 'Take Cash & Send Receipt'}
-            </Button>
-          )}
+          {/* TODO(device): refine which buttons show based on order payment/fulfilment status once the admin retrieve's computed fields are confirmed on-device */}
+          <Button
+            className="mb-2 mt-4"
+            onPress={() => cashCapture.mutate()}
+            disabled={cashCapture.isPending || cashCapture.isSuccess}
+            isPending={cashCapture.isPending}
+          >
+            {cashCapture.isSuccess ? 'Cash captured ✓' : 'Take cash'}
+          </Button>
+          <Button
+            className="mb-2"
+            onPress={() => fulfilOrder.mutate()}
+            disabled={fulfilOrder.isPending || fulfilOrder.isSuccess}
+            isPending={fulfilOrder.isPending}
+          >
+            {fulfilOrder.isSuccess ? 'Fulfilled ✓' : 'Fulfil'}
+          </Button>
+          <Button
+            className="mb-2"
+            onPress={() => createAndEmailReceipt.mutate()}
+            disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess}
+            isPending={createAndEmailReceipt.isPending}
+          >
+            {createAndEmailReceipt.isSuccess ? 'Receipt sent ✓' : 'Create & email receipt'}
+          </Button>
         </>
       ) : (
         <View className="py-11">
