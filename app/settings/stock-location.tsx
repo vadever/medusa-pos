@@ -26,10 +26,6 @@ export default function StockLocationScreen() {
       />
 
       <View className="mt-6 gap-4">
-        <Button variant="outline" onPress={() => router.push('/settings/create-stock-location')}>
-          Create New Stock Location
-        </Button>
-
         <Button
           disabled={!selectedStockLocation}
           isPending={updateSettings.isPending}

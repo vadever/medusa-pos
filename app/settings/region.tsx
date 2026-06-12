@@ -23,10 +23,6 @@ export default function RegionScreen() {
       <RegionList selectedRegionId={selectedRegion} onRegionSelect={setSelectedRegion} />
 
       <View className="mt-6 gap-4">
-        <Button variant="outline" onPress={() => router.push('/settings/create-region')}>
-          Create New Region
-        </Button>
-
         <Button
           disabled={!selectedRegion}
           isPending={updateSettings.isPending}

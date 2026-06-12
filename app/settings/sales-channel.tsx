@@ -23,10 +23,6 @@ export default function SalesChannelScreen() {
       <SalesChannelList selectedSalesChannelId={selectedSalesChannel} onSalesChannelSelect={setSelectedSalesChannel} />
 
       <View className="mt-6 gap-4">
-        <Button variant="outline" onPress={() => router.push('/settings/create-sales-channel')}>
-          Create New Sales Channel
-        </Button>
-
         <Button
           disabled={!selectedSalesChannel}
           isPending={updateSettings.isPending}

@@ -6,13 +6,11 @@ import { View } from 'react-native';
 
 interface RegionSelectionStepProps {
   onComplete: (regionId: string) => void;
-  onCreateNew: () => void;
   initialValue?: string;
 }
 
 export const RegionSelectionStep: React.FC<RegionSelectionStepProps> = ({
   onComplete,
-  onCreateNew,
   initialValue = '',
 }) => {
   const [selectedRegion, setSelectedRegion] = useState(initialValue);
@@ -31,11 +29,7 @@ export const RegionSelectionStep: React.FC<RegionSelectionStepProps> = ({
 
       <RegionList selectedRegionId={selectedRegion} onRegionSelect={handleRegionSelect} />
 
-      <Button variant="outline" className="mt-6" onPress={onCreateNew}>
-        Create New Region
-      </Button>
-
-      <Button className="mt-4" onPress={() => onComplete(selectedRegion)} disabled={!selectedRegion}>
+      <Button className="mt-6" onPress={() => onComplete(selectedRegion)} disabled={!selectedRegion}>
         Next
       </Button>
     </View>
