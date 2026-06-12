@@ -151,8 +151,10 @@ const CustomersList: React.FC<{
     }
 
     const customers = customersQuery.data?.pages.flatMap((page) => page.customers) || [];
+    // Dedupe by id — paginated concat can produce duplicate entries across page boundaries.
+    const uniqueCustomers = Array.from(new Map(customers.map((c) => [c.id, c])).values());
 
-    return customers.length > 0 ? customers : null;
+    return uniqueCustomers.length > 0 ? uniqueCustomers : null;
   }, [customersQuery]);
 
   if (customersQuery.isError) {
