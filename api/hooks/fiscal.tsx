@@ -71,7 +71,11 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
         body: { payment_method: 'cash' },
         headers: { 'Content-Type': 'application/json' },
       });
-      await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
+      // Only email when the receipt was newly created — skip if it already existed
+      // (backend is idempotent; created === false means receipt + email already sent).
+      if (receipt.created) {
+        await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
+      }
       return { documentId: receipt.document.id, testMode: receipt.test_mode };
     },
     onSettled: async () => {
