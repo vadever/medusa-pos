@@ -105,7 +105,9 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
 
 /**
  * Orchestrated cash-register flow for the checkout success Dialog:
- *   cash-capture -> fiscal-receipt -> documents/:id/send (email the Beleg).
+ *   cash-capture -> fulfil -> fiscal-receipt -> documents/:id/send (only when newly created).
+ * The fulfil step decrements stock. If the backend returns already_fulfilled it is treated
+ * as success and the flow continues; only a real HTTP error surfaces.
  * The button that calls this MUST be disabled while isPending — a concurrent
  * double-submit on a collection-less order could double-capture on the backend.
  */
@@ -115,20 +117,41 @@ export const useCashRegisterFlow = (
 ) => {
   const sdk = useMedusaSdk();
   const queryClient = useQueryClient();
+  const settings = useSettings();
   return useMutation({
     mutationKey: ['orders', orderId, 'cash-register-flow'],
     mutationFn: async () => {
+      // Step 1: capture payment
       await sdk.client.fetch<CashCaptureResponse>(`/admin/orders/${orderId}/cash-capture`, { method: 'POST' });
+
+      // Step 2: fulfil (stock decrement) — idempotent; already_fulfilled is not an error
+      const locationId = settings.data?.stock_location?.id;
+      if (!locationId) {
+        throw new Error('No stock location configured — finish Setup first');
+      }
+      await sdk.client.fetch<FulfilOrderResponse>(`/admin/orders/${orderId}/fulfil`, {
+        method: 'POST',
+        body: { location_id: locationId },
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      // Step 3: issue fiscal receipt (Beleg)
       const receipt = await sdk.client.fetch<FiscalReceiptResponse>(`/admin/orders/${orderId}/fiscal-receipt`, {
         method: 'POST',
         body: { payment_method: 'cash' },
         headers: { 'Content-Type': 'application/json' },
       });
-      await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
+
+      // Step 4: email — only when receipt was newly created (skip if already existed)
+      if (receipt.created) {
+        await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
+      }
+
       return { documentId: receipt.document.id, testMode: receipt.test_mode };
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
+      await queryClient.invalidateQueries({ queryKey: ['orders', orderId, 'fiscal-receipt-exists'] });
     },
     onSuccess: (res) => options?.onSuccess?.(res.documentId, res.testMode),
     onError: (error: Error) => { showErrorToast(error); options?.onError?.(error); },
