@@ -60,8 +60,13 @@ export default function CheckoutScreen() {
   const settings = useSettings();
   const draftOrder = useDraftOrderOrOrder(draftOrderId);
   const completeOrder = useCompleteDraftOrder(draftOrderId);
-  const cashRegister = useCashRegisterFlow(draftOrderId);
-  const bankRegister = useBankRegisterFlow(draftOrderId);
+  // Derive guest status early so we can pass skipEmail to the flow hooks unconditionally
+  // (hooks must be called before any conditional returns). Defaults to true (guest) when
+  // data is not yet loaded — safe because the payment buttons are disabled while loading.
+  const earlyCustomerEmail = draftOrder.data?.customer?.email;
+  const isPosDefaultCustomer = !earlyCustomerEmail || earlyCustomerEmail === DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL;
+  const cashRegister = useCashRegisterFlow(draftOrderId, { skipEmail: isPosDefaultCustomer });
+  const bankRegister = useBankRegisterFlow(draftOrderId, { skipEmail: isPosDefaultCustomer });
   const [selectedMethod, setSelectedMethod] = React.useState<'cash' | 'bank' | null>(null);
 
   const renderItem = React.useCallback<ListRenderItem<AdminOrderLineItem>>(
@@ -128,7 +133,8 @@ export default function CheckoutScreen() {
     .filter(Boolean)
     .join(' ');
   const customerPhone = draftOrder.data.customer?.phone;
-  const isPosDefaultCustomer = !customerEmail || customerEmail === DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL;
+  // isPosDefaultCustomer was derived before the hooks above; customerEmail is re-derived here
+  // for the conditional rendering below — value is the same.
 
   return (
     <>
@@ -318,11 +324,19 @@ export default function CheckoutScreen() {
         >
           {cashRegister.isSuccess || bankRegister.isSuccess
             ? selectedMethod === 'bank'
-              ? 'Invoice sent ✓'
-              : 'Receipt sent ✓'
+              ? bankRegister.data?.emailSent
+                ? 'Invoice sent ✓'
+                : 'Invoice created (walk-in — not emailed) ✓'
+              : cashRegister.data?.emailSent
+                ? 'Receipt sent ✓'
+                : 'Receipt created (walk-in — not emailed) ✓'
             : selectedMethod === 'bank'
-              ? 'Record bank payment & email invoice'
-              : 'Take cash & send receipt'}
+              ? isPosDefaultCustomer
+                ? 'Record bank payment & create invoice'
+                : 'Record bank payment & email invoice'
+              : isPosDefaultCustomer
+                ? 'Take cash & create receipt'
+                : 'Take cash & send receipt'}
         </Button>
 
         <Button

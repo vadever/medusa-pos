@@ -73,13 +73,16 @@ export const useFulfilOrder = (orderId: string) => {
 };
 
 /**
- * Create a fiscal receipt for an order and immediately email it to the customer.
+ * Create a fiscal receipt for an order and (unless skipEmail is true) immediately email it.
+ * Pass skipEmail=true for POS walk-in guest orders — the Beleg is still created and signed,
+ * but the send step is skipped so no document lands at the noreply+pos-guest@agilo.com address.
  * Idempotent on the backend — safe to call if a receipt already exists.
  * The button that calls this MUST be disabled while isPending.
  */
-export const useCreateAndEmailReceipt = (orderId: string) => {
+export const useCreateAndEmailReceipt = (orderId: string, options?: { skipEmail?: boolean }) => {
   const sdk = useMedusaSdk();
   const queryClient = useQueryClient();
+  const skipEmail = options?.skipEmail ?? false;
   return useMutation({
     mutationKey: ['orders', orderId, 'create-and-email-receipt'],
     mutationFn: async () => {
@@ -88,12 +91,13 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
         body: { payment_method: 'cash' },
         headers: { 'Content-Type': 'application/json' },
       });
-      // Only email when the receipt was newly created — skip if it already existed
-      // (backend is idempotent; created === false means receipt + email already sent).
-      if (receipt.created) {
+      // Only email when the receipt was newly created AND we have a real customer.
+      // Skip if it already existed (backend is idempotent; created === false means receipt +
+      // email already sent) OR if this is a POS walk-in guest order (skipEmail=true).
+      if (receipt.created && !skipEmail) {
         await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
       }
-      return { documentId: receipt.document.id, testMode: receipt.test_mode };
+      return { documentId: receipt.document.id, testMode: receipt.test_mode, emailSent: receipt.created && !skipEmail };
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
@@ -107,6 +111,8 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
 /**
  * Orchestrated cash-register flow for the checkout success Dialog:
  *   cash-capture -> fulfil -> fiscal-receipt -> documents/:id/send (only when newly created).
+ * Pass skipEmail=true for POS walk-in guest orders — the Beleg is still created and signed,
+ * but the send step is skipped so no document lands at the noreply+pos-guest@agilo.com address.
  * The fulfil step decrements stock. If the backend returns already_fulfilled it is treated
  * as success and the flow continues; only a real HTTP error surfaces.
  * The button that calls this MUST be disabled while isPending — a concurrent
@@ -114,11 +120,12 @@ export const useCreateAndEmailReceipt = (orderId: string) => {
  */
 export const useCashRegisterFlow = (
   orderId: string,
-  options?: { onSuccess?: (documentId: string, testMode: boolean) => void; onError?: (error: Error) => void },
+  options?: { skipEmail?: boolean; onSuccess?: (documentId: string, testMode: boolean, emailSent: boolean) => void; onError?: (error: Error) => void },
 ) => {
   const sdk = useMedusaSdk();
   const queryClient = useQueryClient();
   const settings = useSettings();
+  const skipEmail = options?.skipEmail ?? false;
   return useMutation({
     mutationKey: ['orders', orderId, 'cash-register-flow'],
     mutationFn: async () => {
@@ -147,18 +154,20 @@ export const useCashRegisterFlow = (
         headers: { 'Content-Type': 'application/json' },
       });
 
-      // Step 4: email — only when receipt was newly created (skip if already existed)
-      if (receipt.created) {
+      // Step 4: email — only when receipt was newly created AND we have a real customer.
+      // Skip if already existed (idempotent) OR if this is a POS walk-in guest (skipEmail=true).
+      const emailSent = receipt.created && !skipEmail;
+      if (emailSent) {
         await sdk.client.fetch<void>(`/admin/documents/${receipt.document.id}/send`, { method: 'POST' });
       }
 
-      return { documentId: receipt.document.id, testMode: receipt.test_mode };
+      return { documentId: receipt.document.id, testMode: receipt.test_mode, emailSent };
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
       await queryClient.invalidateQueries({ queryKey: ['orders', orderId, 'fiscal-receipt-exists'] });
     },
-    onSuccess: (res) => options?.onSuccess?.(res.documentId, res.testMode),
+    onSuccess: (res) => options?.onSuccess?.(res.documentId, res.testMode, res.emailSent),
     onError: (error: Error) => { showErrorToast(error); options?.onError?.(error); },
   });
 };
@@ -166,16 +175,19 @@ export const useCashRegisterFlow = (
 /**
  * Orchestrated bank-register flow for the checkout success Dialog:
  *   capture(bank) -> fulfil -> generate invoice -> send invoice.
+ * Pass skipEmail=true for POS walk-in guest orders — the invoice is still generated,
+ * but the send step is skipped so no document lands at the noreply+pos-guest@agilo.com address.
  * No Beleg is created — bank transfers are not subject to Austrian RKSV.
  * The button that calls this MUST be disabled while isPending.
  */
 export const useBankRegisterFlow = (
   orderId: string,
-  options?: { onSuccess?: (documentId: string) => void; onError?: (error: Error) => void },
+  options?: { skipEmail?: boolean; onSuccess?: (documentId: string, emailSent: boolean) => void; onError?: (error: Error) => void },
 ) => {
   const sdk = useMedusaSdk();
   const queryClient = useQueryClient();
   const settings = useSettings();
+  const skipEmail = options?.skipEmail ?? false;
   return useMutation({
     mutationKey: ['orders', orderId, 'bank-register-flow'],
     mutationFn: async () => {
@@ -204,27 +216,32 @@ export const useBankRegisterFlow = (
         headers: { 'Content-Type': 'application/json' },
       });
 
-      // Step 4: email the invoice PDF to the customer
-      await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
+      // Step 4: email the invoice PDF — skip for POS walk-in guests (skipEmail=true)
+      if (!skipEmail) {
+        await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
+      }
 
-      return { documentId: invoice.document.id, type: 'invoice' as const };
+      return { documentId: invoice.document.id, type: 'invoice' as const, emailSent: !skipEmail };
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });
     },
-    onSuccess: (res) => options?.onSuccess?.(res.documentId),
+    onSuccess: (res) => options?.onSuccess?.(res.documentId, res.emailSent),
     onError: (error: Error) => { showErrorToast(error); options?.onError?.(error); },
   });
 };
 
 /**
- * Generate an RG invoice for an existing order and immediately email it to the customer.
+ * Generate an RG invoice for an existing order and (unless skipEmail is true) email it.
+ * Pass skipEmail=true for POS walk-in guest orders — the invoice is still generated,
+ * but the send step is skipped so no document lands at the noreply+pos-guest@agilo.com address.
  * Use on the order-detail screen for bank orders (mirror of useCreateAndEmailReceipt for cash).
  * The button that calls this MUST be disabled while isPending.
  */
-export const useCreateAndEmailInvoice = (orderId: string) => {
+export const useCreateAndEmailInvoice = (orderId: string, options?: { skipEmail?: boolean }) => {
   const sdk = useMedusaSdk();
   const queryClient = useQueryClient();
+  const skipEmail = options?.skipEmail ?? false;
   return useMutation({
     mutationKey: ['orders', orderId, 'create-and-email-invoice'],
     mutationFn: async () => {
@@ -233,8 +250,11 @@ export const useCreateAndEmailInvoice = (orderId: string) => {
         body: { type: 'invoice' },
         headers: { 'Content-Type': 'application/json' },
       });
-      await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
-      return { documentId: invoice.document.id };
+      // Skip the email send for POS walk-in guests
+      if (!skipEmail) {
+        await sdk.client.fetch<void>(`/admin/documents/${invoice.document.id}/send`, { method: 'POST' });
+      }
+      return { documentId: invoice.document.id, emailSent: !skipEmail };
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['orders', 'order', orderId] });

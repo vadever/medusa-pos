@@ -251,13 +251,19 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
     settings.data?.region?.currency_code ||
     'EUR';
 
+  const order = orderQuery.data?.order;
+
+  // Detect POS walk-in guest early so we can pass skipEmail to fiscal hooks unconditionally
+  // (hooks must be called before any conditional returns). When data isn't loaded yet this
+  // defaults to true (guest) — safe because the document buttons are disabled while loading.
+  const orderCustomerEmail = order?.customer?.email;
+  const isPosDefaultCustomer = !orderCustomerEmail || orderCustomerEmail === DRAFT_ORDER_DEFAULT_CUSTOMER_EMAIL;
+
   const cashCapture = useCashCapture(orderId);
   const fulfilOrder = useFulfilOrder(orderId);
-  const createAndEmailReceipt = useCreateAndEmailReceipt(orderId);
-  const createAndEmailInvoice = useCreateAndEmailInvoice(orderId);
+  const createAndEmailReceipt = useCreateAndEmailReceipt(orderId, { skipEmail: isPosDefaultCustomer });
+  const createAndEmailInvoice = useCreateAndEmailInvoice(orderId, { skipEmail: isPosDefaultCustomer });
   const receiptExists = useReceiptExists(orderId);
-
-  const order = orderQuery.data?.order;
 
   // Derive payment method from order metadata stamped at capture time.
   // Falls back to 'cash' behaviour for orders captured before this feature.
@@ -397,7 +403,13 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
               disabled={createAndEmailInvoice.isPending || createAndEmailInvoice.isSuccess || !isPaid}
               isPending={createAndEmailInvoice.isPending}
             >
-              {createAndEmailInvoice.isSuccess ? 'Invoice sent ✓' : 'Email invoice'}
+              {createAndEmailInvoice.isSuccess
+                ? createAndEmailInvoice.data?.emailSent
+                  ? 'Invoice sent ✓'
+                  : 'Invoice created (walk-in — not emailed) ✓'
+                : isPosDefaultCustomer
+                  ? 'Create invoice'
+                  : 'Email invoice'}
             </Button>
           ) : (
             // Cash orders (or unset): show Beleg button
@@ -407,7 +419,15 @@ const OrderDetails: React.FC<{ animateOut: (callback?: () => void) => void }> = 
               disabled={createAndEmailReceipt.isPending || createAndEmailReceipt.isSuccess || !isPaid || !!receiptExists.data?.exists}
               isPending={createAndEmailReceipt.isPending}
             >
-              {(receiptExists.data?.exists || createAndEmailReceipt.isSuccess) ? 'Receipt issued ✓' : 'Create & email receipt'}
+              {receiptExists.data?.exists
+                ? 'Receipt issued ✓'
+                : createAndEmailReceipt.isSuccess
+                  ? createAndEmailReceipt.data?.emailSent
+                    ? 'Receipt sent ✓'
+                    : 'Receipt created (walk-in — not emailed) ✓'
+                  : isPosDefaultCustomer
+                    ? 'Create & sign receipt'
+                    : 'Create & email receipt'}
             </Button>
           )}
         </>
